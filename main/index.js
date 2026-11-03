@@ -38,6 +38,44 @@ try {
     diag = null;
 }
 
+/* ---------- 「删掉整个数据目录 = 彻底重置」标记 ----------
+ * 用户能看到的只有数据目录 <LiteLoader.path.data>/liuli-dsh-theme/，
+ * 但布局 / 明暗 / 壁纸 / 字体等其实存在渲染进程的 localStorage 里，删目录清不掉。
+ * 所以用一个标记文件判断"用户是不是把整个数据目录删了"：
+ *   wipe = 标记文件不存在 且 config.json 也不存在
+ * 老用户正常升级到这个版本时 config.json 一定在 → wipe=false，绝不清他们的 localStorage；
+ * 只有真的把整个目录删了（或全新安装）才 wipe。全新安装 localStorage 本来就是空的，清了也无害。
+ * 判定完立刻把标记补上（空文件），下次启动 markerExists=true，不会重复触发。 */
+const LIULI_DATA_DIR = path.join(LiteLoader.path.data, SLUG);
+const LIULI_INIT_MARKER = path.join(LIULI_DATA_DIR, ".liuli-init");
+const LIULI_CONFIG_FILE = path.join(LIULI_DATA_DIR, "config.json");
+
+function liuliFileExists(p) {
+    try { return fs.existsSync(p); } catch (e) { return false; }
+}
+
+let liuliWipePending = false;
+try {
+    const markerExists = liuliFileExists(LIULI_INIT_MARKER);
+    const configExists = liuliFileExists(LIULI_CONFIG_FILE);
+    liuliWipePending = !markerExists && !configExists;
+    try { fs.mkdirSync(LIULI_DATA_DIR, { recursive: true }); } catch (e) {}
+    if (!markerExists) fs.writeFileSync(LIULI_INIT_MARKER, "", "utf8");
+    log("reset marker | marker=" + (markerExists ? 1 : 0) + " config=" + (configExists ? 1 : 0) +
+        " wipe=" + (liuliWipePending ? 1 : 0));
+} catch (e) {
+    log("reset marker failed: " + (e && e.message));
+}
+
+/* 只读接口：渲染进程启动最早期问一次，wipe=true 就先清 localStorage 再继续启动。
+ * wipe 只交给第一个来取的窗口（取完即消费），否则后开的窗口会把先开窗口
+ * 刚写回的设置又清一遍。 */
+ipcMain.handle("LiteLoader.liuli.resetPending", () => {
+    const wipe = liuliWipePending === true;
+    liuliWipePending = false;
+    return { wipe: wipe };
+});
+
 /* LiteLoader 在内核报 onSessionInitComplete 时触发 onLogin(uid)。 */
 let selfUid = "";
 ipcMain.handle("LiteLoader.liuli.selfUid", () => selfUid);

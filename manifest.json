@@ -4,7 +4,7 @@
   "name": "琉璃",
   "slug": "liuli-dsh-theme",
   "description": "琉璃视觉（移植自 dsh-liuli-ui-enhance）：MCU 壁纸取色动态色板、磨砂玻璃材质、Markdown 渲染、@ 高亮、消息级联入场、自定义字体、右键菜单/输入框/侧边栏布局自定义。",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "thumb": "./assets/icon.svg",
   "author": {
     "name": "LilycleHeart",

@@ -446,6 +446,48 @@ function saveSettings(cfg) {
     } catch (e) {}
 }
 
+/* ---------- 彻底重置：清 localStorage + 配置回默认 ----------
+ * 两处用到：1) 启动时发现数据目录被整个删了（主进程 resetPending 返回 wipe=true）；
+ *           2) 设置页「恢复全部默认」按钮。
+ * 只删 liuli- / liuli_ 开头的键（前缀匹配，不走硬编码列表，新加的键也能清掉），
+ * 再显式删一遍已知键兜底；绝不碰 QQ 自己的 localStorage。
+ * 返回是否成功（清 localStorage 或写配置任一失败即 false）。 */
+const LL_RESET_KNOWN_KEYS = [
+    "liuli-layout", "liuli-layout-seen", "liuli-dsh-mode", "liuli-dsh-wallpaper",
+    "liuli-dsh-wallpaper-rev", "liuli-dsh-main-viewport", "liuli-settings-tab",
+    "liuli-md-render", "liuli-font", "liuli-dsh-settings", "liuli-color-roles",
+    "liuli-wp-advice-dismissed"
+];
+
+async function llResetAll() {
+    let ok = true;
+    /* 1) localStorage：先按前缀扫一遍 */
+    try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && /^liuli[-_]/i.test(k)) keys.push(k);
+        }
+        for (const k of keys) localStorage.removeItem(k);
+    } catch (e) {
+        ok = false;
+        try { console.warn("[liuli-dsh-theme] reset localStorage failed:", e && e.message); } catch (err) {}
+    }
+    /* 2) 已知键再显式删一遍兜底。
+     * 用字面量而不是后面的 LL_* 常量：启动最早期调用时那些 const 还没初始化，引用会撞 TDZ。 */
+    for (const k of LL_RESET_KNOWN_KEYS) {
+        try { localStorage.removeItem(k); } catch (e) {}
+    }
+    /* 3) config.json 回到默认值（set 可能是异步的，失败不影响前面已清掉的结果） */
+    try {
+        await LiteLoader.api.config.set(SETTINGS_KEY, Object.assign({}, DEFAULT_SETTINGS));
+    } catch (e) {
+        ok = false;
+        try { console.warn("[liuli-dsh-theme] reset config failed:", e && e.message); } catch (err) {}
+    }
+    return ok;
+}
+
 /* 设置页窗口和主界面是两个独立 webContents，
  * 面板滑条改的只是设置页那一个窗口的 body 变量，主界面看不到。
  * 所以每次应用都把配置写进 localStorage，
@@ -2955,6 +2997,25 @@ function buildPanelContent(host, settings) {
         toast("已恢复默认");
     });
     pageLook.appendChild(reset);
+
+    /* 「恢复全部默认」：连 localStorage 里的布局 / 明暗 / 壁纸 / 字体一起清，
+     * 和上面只打回材质 / 遮罩的「恢复默认」区分开。不自动 reload，只提示重启。 */
+    const resetAll = document.createElement("div");
+    resetAll.className = "liuli-field__hint";
+    resetAll.style.cssText = "cursor:pointer;color:var(--ll-brand);margin-top:8px;";
+    resetAll.textContent = "恢复全部默认";
+    resetAll.addEventListener("click", async () => {
+        if (!confirm("恢复全部默认设置？包括布局、明暗、壁纸、字体等，需要重启 QQ 生效。")) return;
+        const ok = await llResetAll();
+        Object.assign(settings, DEFAULT_SETTINGS);
+        for (const f of FIELDS) {
+            inputs[f.key].value = settings[f.key];
+            inputs[f.key].dispatchEvent(new Event("input"));
+        }
+        llRefreshVeilSegs(settings);   // 遮罩颜色也回到「亮 / 暗」
+        toast(ok ? "已恢复全部默认，重启 QQ 生效" : "恢复失败，详见 plugin.log");
+    });
+    pageLook.appendChild(resetAll);
 }
 
 let embeddedSettings = null;
@@ -2981,6 +3042,24 @@ async function initPanel() {
 }
 
 (async () => {
+    /* 数据目录被整个删掉时（主进程 resetPending 返回 wipe=true）：
+     * 先把 localStorage 里的 liuli 设置清干净、配置回默认，再走正常启动流程，
+     * 这样这次启动呈现的就是默认样子。任何失败都只 warn，绝不挡启动。 */
+    try {
+        const api = window.liuli_api;
+        if (api && typeof api.resetPending === "function") {
+            const pending = await api.resetPending();
+            if (pending && pending.wipe === true) {
+                const ok = await llResetAll();
+                /* 壁纸 revision 在模块顶部已经读过一次，先清掉这个内存值，免得被当成"没变化" */
+                try { llWpRevSeen = ""; } catch (e) {}
+                try { console.warn("[liuli-dsh-theme] data dir removed, local settings reset:", ok); } catch (e) {}
+            }
+        }
+    } catch (e) {
+        try { console.warn("[liuli-dsh-theme] reset check failed:", e && e.message); } catch (err) {}
+    }
+
     const started = Date.now();
     installRouteScope();
     try {
