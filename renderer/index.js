@@ -93,6 +93,14 @@ async function extractSource() {
     if (img.decode) { await img.decode(); } else {
         await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
     }
+    /* #37：取色这一步本来就要把壁纸解码一遍，顺手把真实宽高比记进比例缓存。
+     * 启动流程是「await applyDynamicPalette() → renderWallpaper(...,"boot")」，
+     * 有了这一步，首帧渲染就能直接拿到比例，不会因为 ratioKnown:false 画成拉伸。 */
+    try {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            llImageRatioCache.set(src, img.naturalWidth / img.naturalHeight);
+        }
+    } catch (e) { /* 静默 */ }
     const size = 64;
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -1201,7 +1209,36 @@ function llRecentSpeakers() {
     return out;
 }
 
-var llGM = { key: null, staff: {} };
+/* #32.1b：当前群的稳定标识，给「管理人数」缓存当桶名。
+ * 旧版直接取 `.chat-header .panel-header__title` 的整段文本，两个问题：
+ *   1) 取不到时 llNorm() 返回 ""，所有群共用 llGM.staff[""] 同一个桶 → 人数串号；
+ *   2) 标题里带着成员数「(260)」，有人进群 key 就变，缓存白丢。
+ * 现在优先用会话列表选中项的 data-contact-id（切群才变）；
+ * 但选中项可能比聊天标题晚一拍更新，名字对不上就不用，免得把人数写进别的群。
+ * 退一级用标题里的群名（.chat-header__contact-name，不含成员数）。
+ * 都取不到返回 ""——调用方据此跳过缓存（只按本次渲染结果展示）。 */
+function llGroupKey() {
+    var name = "";
+    try {
+        var h = document.querySelector(".chat-header .chat-header__contact-name");
+        name = llNorm((h && (h.getAttribute("aria-label") || h.textContent)) || "")
+            .replace(/\(\s*\d+\s*\)\s*$/, "");
+    } catch (e) { /* 静默 */ }
+    try {
+        var items = document.querySelectorAll(".recent-contact-item--selected[data-contact-id]");
+        for (var i = 0; i < items.length; i++) {
+            var el = items[i];
+            if (el.closest && el.closest(".viewport-list__measure")) continue;
+            var id = el.getAttribute("data-contact-id");
+            if (!id) continue;
+            if (name && llNorm(el.textContent).indexOf(name) < 0) continue;   // 名字对不上：多半还没切过去
+            return "c:" + id;
+        }
+    } catch (e) { /* 静默 */ }
+    return name ? "n:" + name : "";
+}
+
+var llGM = { key: null, staff: {} };   // staff: key -> { n: 人数, exact: 是否确定完整 }
 function llGroupMembersPass() {
     try {
         var gm = document.querySelector(".group-member");
@@ -1213,8 +1250,9 @@ function llGroupMembersPass() {
         // 标题先变，成员列表要等 QQ 拉完数据才换（2026-11-01 用户反馈：先给上一个群的成员播一遍入场动画，再突然刷新成新群）。
         // 所以换群时先记下当前（旧）成员的签名，等签名变了、也就是新成员真的到了，再播动画；
         // 1.5 秒内没变（两个群前几位成员恰好一样）就不播了，免得晚一拍突然动一下。
-        var title = document.querySelector(".chat-header .panel-header__title");
-        var key = llNorm(title && title.textContent);
+        // #32.1b：换群判据换成稳定 key（会话 id / 群名）。以前用整段标题文本，
+        // 标题里带着成员数「(260)」——人数一变化就被误判成"换群"。
+        var key = llGroupKey();
         var host = gm.querySelector(".group-member-list") || gm;
         var sig = function () {
             return Array.prototype.slice.call(host.querySelectorAll(".group-user__name"), 0, 6)
@@ -1253,8 +1291,9 @@ function llGroupMembersPass() {
         // 现在夹在两个管理之间的非管理行（往后 3 行内还有管理）算进这一块，但不计人数。
         var inBlock = {};
         var blockEnd = -1;   // 管理团队之后第一个普通成员的 index；-1 表示还没渲染到
-        if (byIdx[0]) {
-            var j = 0;
+        var started = !!byIdx[0];   // 第 0 行在不在：在才谈得上"从头数管理块"
+        var j = 0;
+        if (started) {
             while (byIdx[j]) {
                 if (isStaff(byIdx[j])) { inBlock[j] = true; j++; continue; }
                 var more = false;
@@ -1265,7 +1304,7 @@ function llGroupMembersPass() {
             if (byIdx[j]) blockEnd = j;
         }
         // 第 0 行没渲染（列表滚下去了）时没法确定整块范围，退回只看自己有没有管理员标签
-        var staffAt = function (i) { return byIdx[0] ? !!inBlock[i] : isStaff(byIdx[i]); };
+        var staffAt = function (i) { return started ? !!inBlock[i] : isStaff(byIdx[i]); };
         Object.keys(byIdx).forEach(function (key2) {
             var i = Number(key2), r = byIdx[i];
             var g = "";
@@ -1278,16 +1317,34 @@ function llGroupMembersPass() {
                 if (g) r.dataset.liuliStaff = g; else delete r.dataset.liuliStaff;
             }
         });
-        // 管理人数：管理团队整块都渲染出来才算数（只数带管理员标签的行），按群缓存
-        if (blockEnd >= 0) {
-            var n = 0;
-            for (var m = 0; m < blockEnd; m++) if (isStaff(byIdx[m])) n++;
-            llGM.staff[key] = n;
+        /* 管理人数（#32.1b）：只数带管理员标签的行。
+         *  - blockEnd >= 0：管理块整块都渲染出来了 → 精确值，写缓存；
+         *  - 只渲染到块中间（大群分批/虚拟渲染）：这只能算「至少 N」，显示成 "N+"，
+         *    绝不写死成精确值——v1.3.2 对 #22 的修补就回归在这里：首屏只看到一个
+         *    管理员就把 1 缓存下来，之后很难再被覆盖，于是「22 人只显示 1 人」；
+         *  - 第 0 行都没渲染（列表滚下去了）→ 什么都别猜：有缓存用缓存，没有就空着。
+         * key 为空（拿不到会话 id / 群名）时既不读也不写缓存，避免所有群共用
+         * llGM.staff[""] 一个桶导致人数串号。 */
+        var exact = blockEnd >= 0;
+        var counted = 0;
+        for (var m = 0; m < (exact ? blockEnd : j); m++) if (byIdx[m] && isStaff(byIdx[m])) counted++;
+        var rec = key ? llGM.staff[key] : null;
+        if (key && started) {
+            if (exact) {
+                rec = { n: counted, exact: true };
+                llGM.staff[key] = rec;
+            } else if (counted > 0 && (!rec || (!rec.exact && counted > rec.n))) {
+                rec = { n: counted, exact: false };   // 只是"至少 N"，不能盖掉已知的精确值
+                llGM.staff[key] = rec;
+            }
         }
         var span = gm.querySelector(".group-member-title > span");
-        var cnt = llGM.staff[key];
+        var showN = 0, showExact = false;
+        if (started && exact) { showN = counted; showExact = true; }
+        else if (rec && rec.n > 0) { showN = rec.n; showExact = !!rec.exact; }
+        else if (started && counted > 0) { showN = counted; showExact = false; }
         if (span) {
-            var want = cnt ? String(cnt) : "";
+            var want = showN > 0 ? (showExact ? String(showN) : showN + "+") : "";
             if ((span.dataset.liuliStaff || "") !== want) {
                 if (want) span.dataset.liuliStaff = want; else delete span.dataset.liuliStaff;
             }
@@ -1445,9 +1502,34 @@ function installRevealTracker() {
     /* 按坐标判断，不依赖 mouseover/mouseout：
      * 那两个事件在 QQ 里会晚一拍到达，且离开时偶尔不来，标记就卡住不收。
      *   左边缘 ≤8px（整条）           → 展开导航；展开后指针在导航卡上就保持
-     *   顶边 ≤8px 的左 / 右 200px     → 唤出左上 / 右上胶囊；指针在胶囊上就保持
+     *   顶边 ≤ 胶囊底边（≈36px）左/右  → 唤出左上 / 右上胶囊；指针在胶囊上就保持
      * 离开后收起：导航 250ms；胶囊 600ms（#4 #10：给鼠标从感应条挪到按钮上留余量）。 */
     var EDGE = 8, PAD = 18, CORNER = 200;
+    /* #32.4a：顶部唤出区不能只有窗口顶边 8px（--ll-dock-gap）。胶囊本体是
+     * top:6px + height:30px（assets/layout.css:459-462），按钮 34×26 的点击面从
+     * y≈8 才开始——只认 y≤8 时「光标已经在按钮上」反而唤不出来、点下去也没反应，
+     * 用户必须再往下摸一次才行。这里把顶部感应带放宽到胶囊底边（≈36px）；
+     * 左边缘（导航）仍只用 EDGE，不受影响。 */
+    var TOP_EDGE = 36, topEdgeCache = 0;
+    function topEdge() {
+        if (topEdgeCache) return topEdgeCache;
+        var v = TOP_EDGE;
+        try {
+            var el = document.querySelector(".topbar-profile") || document.querySelector(".window-control-area");
+            if (el) {
+                var t = parseFloat(getComputedStyle(el).top);
+                var hh = el.offsetHeight || 0;
+                if (isFinite(t) && hh > 0) v = Math.max(v, t + hh);      // top + height = 胶囊底边
+            }
+            var band = document.getElementById("liuli-top-hint-l");
+            if (band) {
+                var bh = band.getBoundingClientRect().height;
+                if (bh > 0) v = Math.max(v, bh);                          // CSS 若把感应条加高，跟着它走
+            }
+        } catch (e) { /* 静默 */ }
+        topEdgeCache = Math.max(EDGE, Math.min(64, v));   // 夹一层上限，CSS 改坏了也不至于整屏都算顶边
+        return topEdgeCache;
+    }
     var HOLD = { nav: 250, l: 600, r: 600 };
     var KEYS = { l: "liuliRL", r: "liuliRR", nav: "liuliRNav" };
     var state = {}, timers = {}, last = { x: -1, y: -1 };
@@ -1495,8 +1577,10 @@ function installRevealTracker() {
         last.x = x; last.y = y;
         set("nav", x <= EDGE || (state.nav && over(".container-sidebar", x, y)));
         if (nativeBar()) { set("l", false); set("r", false); return; }
-        set("l", (y <= EDGE && x >= 56 && x <= CORNER + 56) || (state.l && over(".topbar-profile", x, y)));
-        set("r", (y <= EDGE && x >= w - CORNER) || (state.r && over(".window-control-area", x, y)));
+        // #32.4a：顶部按胶囊底边算（≈36px），不再只认窗口顶边 8px
+        var top = topEdge();
+        set("l", (y <= top && x >= 56 && x <= CORNER + 56) || (state.l && over(".topbar-profile", x, y)));
+        set("r", (y <= top && x >= w - CORNER) || (state.r && over(".window-control-area", x, y)));
     }
     /* 鼠标进到拖动区 / 离开窗口时页面只收到一次 mouseleave，之后不再有 mousemove。
      * 如果离开前指针就在胶囊附近，多半只是经过了一小段拖动区，晚一点再收。 */
@@ -1517,18 +1601,25 @@ function installRevealTracker() {
  * ⚠️ QQ 顶部 40px 与左侧 52px 是窗口拖动区（-webkit-app-region: drag），
  * Windows 下鼠标在拖动区里不会把事件发给页面，:hover 永远不触发。
  * 所以入口必须是单独的 no-drag 元素，挂在 body 下（Vue 不会清掉）。
- *   #liuli-top-hint-l / -r：窗口顶边 8px 的感应条，指向时唤出左上/右上胶囊
+ *   #liuli-top-hint-l / -r：窗口顶边（#32.4a 后放宽到胶囊底边 ≈36px）的感应条，
+ *                          指向时唤出左上/右上胶囊
  *   #liuli-nav-handle    ：左边缘的小把手，指向时滑出导航栏 */
 function ensureHoverEntries() {
     try {
         installRevealTracker();
         [["liuli-top-hint-l", "唤出个人信息"], ["liuli-top-hint-r", "唤出窗口按钮"]].forEach(function (pair) {
-            if (document.getElementById(pair[0])) return;
-            var el = document.createElement("div");
-            el.id = pair[0];
-            el.className = "liuli-top-hint";
-            el.title = pair[1];
-            document.body.appendChild(el);
+            var el = document.getElementById(pair[0]);
+            if (!el) {
+                el = document.createElement("div");
+                el.id = pair[0];
+                el.className = "liuli-top-hint";
+                el.title = pair[1];
+                document.body.appendChild(el);
+            }
+            /* #32.4a：感应条要覆盖胶囊高度（≈36px），所以它必须待在胶囊下面，
+             * 否则会挡住胶囊上按钮的真实点击面。胶囊是 z-index 3600，这里内联兜底
+             * 到 3500——CSS 那边不管怎么调高度都不会把按钮点没了。 */
+            if (el.style.zIndex !== "3500") el.style.zIndex = "3500";
         });
         if (!document.getElementById("liuli-nav-handle")) {
             var h = document.createElement("div");
@@ -1697,6 +1788,25 @@ function primeImageRatio(src) {
     });
 }
 
+/* #37：启动路径补算比例用。同一个 src 只解码一次（复用同一个 Promise，
+ * 失败结果也记住），避免 onerror 的坏图在「启动 → 600ms 兜底 → 轮询」之间
+ * 被反复重试，也避免并发调用各拿到一份不一致的结果。 */
+const llWpRatioTried = new Map();     // src -> Promise<ratio|null>（已发起/已完成的解码）
+const llWpRatioFailed = new Set();    // 解码失败（onerror）的 src：渲染时只能退回 cover
+function primeWallpaperRatioOnce(src) {
+    const known = getImageRatio(src);
+    if (known) return Promise.resolve(known);
+    const hit = llWpRatioTried.get(src);
+    if (hit) return hit;
+    if (llWpRatioTried.size > 8) { llWpRatioTried.clear(); llWpRatioFailed.clear(); }
+    const p = primeImageRatio(src).then(function (r) {
+        if (r) llWpRatioFailed.delete(src); else llWpRatioFailed.add(src);
+        return r;
+    });
+    llWpRatioTried.set(src, p);
+    return p;
+}
+
 /* ── 把选区按指定比例归一化：保留面积与中心，两维恒 ≤ 0.998 ── */
 function normalizeAreaToRatio(area, ratio) {
     const safeRatio = Math.max(0.05, Math.min(20, ratio));
@@ -1723,7 +1833,8 @@ function normalizeAreaToRatio(area, ratio) {
 }
 
 /* ── 由选区推导 background-size / position ──
- * cover 选区放大公式：size = 100%/w 100%/h；position = x/(1-w) y/(1-h) */
+ * cover 选区放大公式：size = 100%/w 100%/h；position = x/(1-w) y/(1-h)
+ * 返回 null 表示「这一帧算不出可信的几何」，调用方自己决定跳过还是退回 cover。 */
 function bgGeometry(area, imageRatio, viewportRatio) {
     if (arguments[3] === "contain") return { size: "contain", position: "center" };
     if (arguments[3] === "stretch") return { size: "100% 100%", position: "center" };
@@ -1731,8 +1842,12 @@ function bgGeometry(area, imageRatio, viewportRatio) {
         return { size: "cover", position: "center" };
     }
     const vRatio = viewportRatio && viewportRatio > 0 ? viewportRatio : window.innerWidth / window.innerHeight;
-    const iRatio = imageRatio && imageRatio > 0 ? imageRatio : vRatio;
-    const n = normalizeAreaToRatio(area, vRatio / iRatio);
+    /* #37：有选区、但图片比例还没解码出来时，**不能**拿视口比例顶替。
+     * 顶替后 vRatio / iRatio 恒为 1，normalizeAreaToRatio() 会把选区按 1:1 归一化成
+     * 正方形，算出来的 background-size 就是用户看到的「重启 QQ 后壁纸变拉伸」。
+     * 这里返回 null，让调用方等比例就绪后再画（宁可白一帧也不画错）。 */
+    if (!(imageRatio && imageRatio > 0)) return null;
+    const n = normalizeAreaToRatio(area, vRatio / imageRatio);
     if (n.w >= 0.999 || n.h >= 0.999) {
         return { size: "cover", position: "center" };
     }
@@ -1769,7 +1884,24 @@ function renderWallpaper(state, reason) {
         }
         return;
     }
-    const g = bgGeometry(state.area, getImageRatio(state.src), window.innerWidth / window.innerHeight, state.fit || "cover");
+    const ir = getImageRatio(state.src);
+    let g = bgGeometry(state.area, ir, window.innerWidth / window.innerHeight, state.fit || "cover");
+    if (!g) {
+        /* #37：有选区、比例未就绪（启动那一帧必然如此）。这一帧先不落笔，
+         * 由 primeWallpaperRatioOnce() 就绪后的那次渲染补上——宁可白一帧也不画成拉伸。
+         * 只有确定解码失败（onerror）的图才退回整块 cover：铺满、但不变形。 */
+        if (!llWpRatioFailed.has(state.src)) {
+            if (reason) {
+                auditWallpaper("apply", {
+                    scope: llScopeName(), styleLen: el.textContent.length, ratioKnown: false,
+                    fit: state.fit || "cover", area: state.area || null,
+                    skipped: "area-ratio-unknown", reason: reason, rev: llWallpaperRev()
+                });
+            }
+            return;
+        }
+        g = { size: "cover", position: "center" };
+    }
     el.textContent =
         // 伪元素的骨架也写在这里：以前只在默认壁纸 wallpaper.css 里，
         // 默认壁纸不再发布后，没有 content 的 ::before 不会画出来。
@@ -1808,11 +1940,21 @@ function llWallpaperPseudoApplied() {
 function scheduleWallpaperBootRetry() {
     setTimeout(function () {
         try {
-            if (llWallpaperPseudoApplied()) return;
             const st = loadWallpaperState();
             if (!st || !st.src) return;
-            console.warn("[liuli-dsh-theme] 壁纸已保存但 #app::before 没有背景图，重渲染一次");
+            const ir = getImageRatio(st.src);
+            /* #37：旧判据只看「#app::before 有没有 url(」。可启动时背景图早就画上去了
+             * （只是有选区、比例未知，background-size 算歪了），于是这里提前 return，
+             * 永远不会补救。有选区而比例仍未知，也必须重算一次。 */
+            const needRatio = !!(st.area && !ir);
+            if (llWallpaperPseudoApplied() && !needRatio) return;
+            console.warn("[liuli-dsh-theme] 壁纸启动渲染不完整（#37），重渲染一次");
             renderWallpaper(st, "boot-retry");
+            if (needRatio) {
+                primeWallpaperRatioOnce(st.src).then(function (r) {
+                    if (r) renderWallpaper(loadWallpaperState(), "ratio-primed");
+                });
+            }
             window.__liuliPaletteApplied = false;
             applyDynamicPalette();
         } catch (e) { /* 静默 */ }
@@ -2365,7 +2507,9 @@ function buildWallpaperControls(host) {
             stage.style.aspectRatio = String(wr);
             const fx = document.createElement("div");
             fx.className = "liuli-wp-effect";
-            const g = bgGeometry(st.area, ir, wr, fit);
+            // #37：比例还没就绪时 bgGeometry() 返回 null，预览这一帧先按 cover 画，
+            // 等 primeImageRatio() 回来重渲染，绝不能按 1:1 归一化（那就是拉伸预览）
+            const g = bgGeometry(st.area, ir, wr, fit) || { size: "cover", position: "center" };
             fx.style.backgroundImage = "url(\"" + st.src + "\")";
             fx.style.backgroundSize = g.size;
             fx.style.backgroundPosition = g.position;
@@ -3083,8 +3227,17 @@ async function initPanel() {
         catch (e) { console.warn("[liuli-dsh-theme] dynamic palette failed:", e && e.message); }
 
         const bootWallpaper = loadWallpaperState();
+        /* #37：启动时图片比例必然还没解码（用户日志 ratioKnown:false）。有选区时同步落笔
+         * 会被 bgGeometry() 判成「算不出」而跳过；这里先发起解码，就绪后补一次渲染。
+         * 坏图由 primeWallpaperRatioOnce() 记住只试一次，不会反复重试。 */
+        if (bootWallpaper && bootWallpaper.src && bootWallpaper.area && !getImageRatio(bootWallpaper.src)) {
+            primeWallpaperRatioOnce(bootWallpaper.src).then(function (r) {
+                if (!r) return;
+                renderWallpaper(loadWallpaperState(), "ratio-primed");
+            });
+        }
         renderWallpaper(bootWallpaper, "boot");
-        // 启动兜底：有壁纸但 #app::before 没画出来时再渲染一次（契约第四节第 4 条）
+        // 启动兜底：有壁纸但 #app::before 没画出来 / 选区比例没就绪时再渲染一次（契约第四节第 4 条）
         if (bootWallpaper && bootWallpaper.src) scheduleWallpaperBootRetry();
         applyOverrides();
         fixContrast();

@@ -57,6 +57,28 @@ body .q-context-menu:not(.is-pure):not(#ll)::before {
 body .q-context-menu:not(.is-pure):not(#ll) > :not(.q-context-sub-menu__container) {
   animation: liuli-fade-in var(--ll-dur) var(--ll-ease) backwards;
 }
+/* #27.5 白名单兜底（2026-11-06，未实测命中；材质规则见 layout.css 同一选择器）：
+ * 只对「里面装标准菜单项」的 .q-context-menu.is-pure 生效，和上面 49-59 行同一套做法——
+ * 菜单本身不动画、不投影，动画和投影都画在 ::before 上，避免透明度动画让菜单变成 backdrop root。 */
+body .q-context-menu.is-pure:has(> .q-context-menu-item):not(#ll) {
+  animation: none !important;
+  box-shadow: none !important;
+}
+body .q-context-menu.is-pure:has(> .q-context-menu-item):not(#ll)::before {
+  animation: liuli-fade-in var(--ll-dur) var(--ll-ease) backwards;
+  box-shadow: var(--ll-float-shadow) !important;
+}
+body .q-context-menu.is-pure:has(> .q-context-menu-item):not(#ll) > :not(.q-context-sub-menu__container) {
+  animation: liuli-fade-in var(--ll-dur) var(--ll-ease) backwards;
+}
+/* #27.5 标题栏右上角那组下拉（2026-11-06）：
+ * 实测它们是 .bar-more-menu > .bar-more-menu-inner，inner 不带 .q-context-menu，
+ * 所以上面这几条 :not(.is-pure) 规则一条都不命中，菜单既没材质也没入场（材质见 layout.css）。
+ * 这里只补淡入：和 .q-context-menu 一样画在真正可见的一层上，
+ * 不让外层 .bar-more-menu 定位壳带 transform（子菜单会跑偏）。 */
+body .bar-more-menu-inner:not(.q-context-menu):not(#ll) {
+  animation: liuli-fade-in var(--ll-dur) var(--ll-ease) backwards;
+}
 /* @ 面板、快捷表情面板：QQ 用 translateY(-100%) 把它们顶到输入框上方，
  * 动画终点不能是 transform:none（fill:both 会盖掉定位，面板掉到输入框上）。 */
 @keyframes liuli-pop-up-anchored {

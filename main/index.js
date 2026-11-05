@@ -123,6 +123,55 @@ const SETTINGS_MIN_OVERLAP = 100;   // 与屏幕 workArea 至少 100×100 交集
 
 const settingsWindows = new WeakMap();   // BrowserWindow -> 记录
 
+/* ---------- #30 定时器安全网（2026-11-06） ----------
+ * liteLoader.log 实测：[fatal] uncaughtException TypeError: Object has been destroyed
+ *   at Timeout._onTimeout (...application.asar)
+ * 即防抖保存的 setTimeout 在窗口/对象销毁之后才跑，回调里再读已销毁的 BrowserWindow 就抛异常。
+ * 处理（本文件里只有 scheduleSettingsSave 一处注册定时器，grep setInterval|setTimeout 只有它）：
+ *   1. 回调入口先判 rec.disposed / win.isDestroyed() / wc.isDestroyed()；
+ *   2. 未决定时器登记到 pendingSaveRecs，app 的 before-quit / will-quit 统一 clear；
+ *   3. 退出流程中不再排新定时器。 */
+const pendingSaveRecs = new Set();   // 还有未决防抖定时器的 settings 记录
+let liuliQuitting = false;
+
+function isAliveWin(win) {
+    try {
+        if (!win || typeof win !== "object") return false;
+        if (typeof win.isDestroyed === "function" && win.isDestroyed()) return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function isAliveWc(wc) {
+    try {
+        if (!wc || typeof wc !== "object") return false;
+        if (typeof wc.isDestroyed === "function" && wc.isDestroyed()) return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function clearPendingSave(rec) {
+    if (!rec) return;
+    if (rec.timer) {
+        try { clearTimeout(rec.timer); } catch (e) {}
+        rec.timer = null;
+    }
+    try { pendingSaveRecs.delete(rec); } catch (e) {}
+}
+
+/* before-quit / will-quit：把还没跑的保存定时器全部清掉，退出流程里不再碰任何窗口 */
+function clearAllPendingSaves() {
+    liuliQuitting = true;
+    const recs = [];
+    try { pendingSaveRecs.forEach(function (rec) { recs.push(rec); }); } catch (e) {}
+    for (let i = 0; i < recs.length; i++) clearPendingSave(recs[i]);
+    try { pendingSaveRecs.clear(); } catch (e) {}
+}
+
 function isSettingsUrl(url) {
     const s = String(url || "");
     const i = s.indexOf("#");
@@ -197,7 +246,9 @@ function saveSettingsNow(rec) {
     if (!rec || rec.disposed) return;
     const win = rec.win;
     try {
-        if (!win || (typeof win.isDestroyed === "function" && win.isDestroyed())) return;
+        /* #30：窗口或 webContents 任一已销毁就直接放弃，不要在销毁对象上取属性 */
+        if (!isAliveWin(win)) return;
+        if (rec.wc && !isAliveWc(rec.wc)) return;
         let minimized = false;
         try { minimized = typeof win.isMinimized === "function" && !!win.isMinimized(); } catch (e) { minimized = false; }
         if (minimized) return;   // 最小化时尺寸不可靠，保留上一次的存档
@@ -221,34 +272,39 @@ function saveSettingsNow(rec) {
 
 function scheduleSettingsSave(rec) {
     if (!rec || rec.disposed) return;
-    if (rec.timer) {
-        try { clearTimeout(rec.timer); } catch (e) {}
-        rec.timer = null;
-    }
+    if (liuliQuitting) return;                 // #30：退出流程里不再排新的保存
+    if (!isAliveWin(rec.win)) return;          // #30：窗口已销毁就别挂定时器
+    clearPendingSave(rec);
     rec.timer = setTimeout(function () {
-        rec.timer = null;
-        saveSettingsNow(rec);
+        /* #30 回调入口：这是 liteLoader.log 里报「Object has been destroyed」的那一处。
+         * 定时器可能在窗口关掉之后才跑到（防抖 400ms 跨了关闭事件），
+         * 所以先判销毁再进 saveSettingsNow，并把整段包进 try 兜底。 */
+        try {
+            rec.timer = null;
+            pendingSaveRecs.delete(rec);
+            if (rec.disposed || liuliQuitting) return;
+            if (!isAliveWin(rec.win)) return;
+            if (rec.wc && !isAliveWc(rec.wc)) return;
+            saveSettingsNow(rec);
+        } catch (e) {
+            log("settings window timer failed: " + (e && e.message));
+        }
     }, SETTINGS_DEBOUNCE_MS);
+    pendingSaveRecs.add(rec);
     /* 不让防抖定时器拖住 QQ 退出 */
     if (rec.timer && typeof rec.timer.unref === "function") rec.timer.unref();
 }
 
 function flushSettingsSave(rec) {
     if (!rec || rec.disposed) return;
-    if (rec.timer) {
-        try { clearTimeout(rec.timer); } catch (e) {}
-        rec.timer = null;
-    }
+    clearPendingSave(rec);
     saveSettingsNow(rec);
 }
 
 function disposeSettingsWindow(rec) {
     if (!rec || rec.disposed) return;
     rec.disposed = true;
-    if (rec.timer) {
-        try { clearTimeout(rec.timer); } catch (e) {}
-        rec.timer = null;
-    }
+    clearPendingSave(rec);
     try {
         if (rec.wc && rec.onUrl && typeof rec.wc.removeListener === "function") {
             rec.wc.removeListener("did-navigate", rec.onUrl);
@@ -305,6 +361,7 @@ function trackSettingsWindow(win) {
     const onUrl = function () {
         try {
             if (rec.disposed || rec.owned) return;
+            if (!isAliveWc(wc)) return;   // #30：webContents 已销毁，别再 getURL
             let url = "";
             try { url = typeof wc.getURL === "function" ? wc.getURL() : ""; } catch (e) { url = ""; }
             if (!isSettingsUrl(url)) return;
@@ -332,6 +389,15 @@ function installSettingsWindowMemory() {
         });
     } catch (e) {
         log("settings window hook install failed: " + (e && e.message));
+    }
+
+    /* #30：退出时把还没跑的保存定时器全部清掉（before-quit 先于窗口 close，
+     * 窗口 close 时 flushSettingsSave 仍会把最后的位置写一次，不会丢存档）。 */
+    try {
+        app.on("before-quit", clearAllPendingSaves);
+        app.on("will-quit", clearAllPendingSaves);
+    } catch (e) {
+        log("quit hook install failed: " + (e && e.message));
     }
 
     /* 插件可能晚于部分窗口创建，补挂一次已有窗口 */

@@ -157,6 +157,18 @@ body .group-member-title > span[data-liuli-staff]::after {
   color: var(--ll-on-glass-3);
 }
 
+/* #32.1a 群人数到 4 位（>1000）后「· 管理 N」被截断（2026-11-06）
+ * .group-member-title 是 display:flex + justify-content:space-between（QQ 原样式），
+ * 追加的计数和标题同属一个 flex item：容器不够宽时 flex-shrink 先压这个 span，
+ * 于是 "· 管理 N" 连同标题尾部一起被 QQ 自己的 overflow/ellipsis 吃掉。
+ * 让这个 span 不参与压缩、不换行、允许溢出：计数永远完整，
+ * 标题文字的截断仍旧交给 QQ（它自己的 .text-ellipsis 负责），<1000 人时观感不变。 */
+body .group-member-title > span[data-liuli-staff] {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+
 /* 悬停 */
 body .group-member .group-user .group-user__content {
   border-radius: 8px !important;

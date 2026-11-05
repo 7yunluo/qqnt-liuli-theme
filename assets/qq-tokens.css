@@ -247,3 +247,27 @@ body {
   /* 只用在撤回提示的「重新编辑」上，当链接色用 */
   --bubble-host: var(--ll-link, var(--ll-brand)) !important;
 }
+
+/* ── #27.4 红包蒙层不要跟着壁纸走（2026-11-06）──────────────────────────
+ * 上面第 240-241 行把 --background_05 换成了 --ll-surface-mid，原始注释写明它被
+ * 「长消息卡片、红包蒙层」共用。核实 QQ 自身的 CSS 后确认两处实际用法：
+ *   .long-struct-message__inner { background-color: var(--background_05); }   ← 长消息卡片
+ *   .lucky-money__mask         { background-color: var(--background_05); opacity: .4 }  ← 红包卡片蒙层
+ * （依据：liuli-promo/replica/main.html:4075 / :4219，那份文件是 QQ 真机样式快照）
+ * 于是红包卡片上多出一层壁纸色的 40% 罩子 —— 就是用户 #27 第 4 条截图里的「红包背景被误伤」。
+ *
+ * 长消息卡片还要用这个新色，不能撤掉上面的全局覆盖；
+ * 所以在红包作用域内把 token 还原成 QQ 原值（亮色 #FFFFFF / 暗色 #000000，
+ * 与 QQ 自己的 .q-theme-tokens-light/dark 里 --background-05 的值一致）。
+ * 作用域用类名前缀 lucky-money：红包卡片内部所有 lucky-money__* 都跟着还原，
+ * 长消息卡片不在这个作用域里，不受影响。
+ * ⚠️ 未真机验证：取证时本机会话里没有红包消息，无法打开实测；
+ *   选择器取自 QQ 自己的 CSS 快照，若打开红包的详情页换了类名需补选择器。 */
+body [class*="lucky-money"] {
+  --background_05: #ffffff !important;
+}
+body[q-theme="dark"]:not([data-liuli-dark="0"]) [class*="lucky-money"],
+body.q-theme-tokens-dark:not([data-liuli-dark="0"]) [class*="lucky-money"],
+body[data-liuli-dark="1"] [class*="lucky-money"] {
+  --background_05: #000000 !important;
+}

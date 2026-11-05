@@ -719,6 +719,62 @@ body .expression-panel .sticker-panel .sticker-panel {
   -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
 }
+
+/* #27.5 白名单兜底（2026-11-06，未实测命中）
+ * 上面 690 行的 :not(.is-pure) 保留：核对 QQ 原样式后确认 .is-pure 是「容器不画底、
+ * 内容自带」的那类菜单（.q-context-menu.is-pure 只有 overflow:unset），
+ * 无脑放开会让这类菜单凭空多一层玻璃。
+ * 但万一某个版本的右上角「更多」菜单是 .q-context-menu.is-pure，就会和用户投诉一样"全裸"，
+ * 所以这里加一条很窄的白名单：只有「里面装的是标准菜单项」的纯菜单才补材质，
+ * 自带自定义内容的纯菜单原样不动。本机（9.9.36-53644）实测这组下拉不是 .is-pure（见下条注释），
+ * 这条是兜底，当前不会命中。 */
+body .q-context-menu.is-pure:has(> .q-context-menu-item):not(#ll) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transform: none !important;
+  border: none !important;
+  border-radius: var(--ll-radius) !important;
+  box-shadow: var(--ll-float-shadow) !important;
+  color: var(--ll-on-glass) !important;
+}
+body .q-context-menu.is-pure:has(> .q-context-menu-item):not(#ll)::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: -1 !important;
+  border-radius: inherit !important;
+  background: var(--ll-noise), var(--ll-menu-bg, var(--ll-float-bg)) !important;
+  backdrop-filter: var(--ll-float-blur) !important;
+  -webkit-backdrop-filter: var(--ll-float-blur) !important;
+  pointer-events: none !important;
+}
+
+/* ── #27.5 聊天页右上角「更多 / 群应用 / 截图 / 文件夹」下拉没有材质（2026-11-06）──
+ * 实测（ll-cdp · QQ 9.9.36-53644 主窗口，ll-cdp target=2）：
+ *   标题栏这组下拉的真实结构是
+ *     .bar-more-menu.q-float-card > .bar-more-menu-inner
+ *   而 .bar-more-menu-inner 上【没有】.q-context-menu —— 只有输入框那套工具栏的
+ *   inner 才带（见本文件 1586 行）。上面 690 行的材质规则只认 .q-context-menu，
+ *   1343 行又把外层 .bar-more-menu.q-float-card 故意清成透明（外层是 0×0 定位壳），
+ *   于是这组下拉**一条材质规则都没命中**：计算值 background=rgba(0,0,0,0)、
+ *   backdrop-filter=none、box-shadow=none、border-radius=0 —— 整块裸在壁纸上，
+ *   就是用户说的「完全没有透明度，和消息列表栏不一样」。
+ * 材质补到真正可见的 .bar-more-menu-inner 上；外层壳仍然不加模糊/transform，
+ * 否则它会变成内层 fixed 内容的定位参照，菜单跑偏（见 1296-1301 / 1333-1337 行）。
+ * 关于 .is-pure：核对 QQ 原样式后确认
+ *   .q-context-menu:not(.is-pure) 才是「QQ 自己画底」的那种，
+ *   .q-context-menu.is-pure 只有 overflow:unset（= 容器自带内容、不画底），
+ *   所以 690 行的排除保留，只在上面 723 行加一条「含标准菜单项」的窄白名单兜底。 */
+body .bar-more-menu-inner:not(.q-context-menu):not(#ll) {
+  background: var(--ll-noise), var(--ll-menu-bg, var(--ll-float-bg)) !important;
+  backdrop-filter: var(--ll-float-blur) !important;
+  -webkit-backdrop-filter: var(--ll-float-blur) !important;
+  border: none !important;
+  border-radius: var(--ll-radius) !important;
+  box-shadow: var(--ll-float-shadow) !important;
+  color: var(--ll-on-glass) !important;
+}
 /* 遮罩层：保留轻微压暗，不要磨砂 */
 body .q-popup__modal {
   background: rgba(var(--ll-scrim-rgb), 0.32) !important;
