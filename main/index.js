@@ -7,11 +7,25 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 
 const SLUG = "liuli-dsh-theme";
 const LOG = path.join(LiteLoader.path.data, SLUG, "plugin.log");
+const LOG_MAX_BYTES = 256 * 1024;   // plugin.log 单文件上限，与 diag 的 session.log 同一口径
+
+/** 写满了就把 plugin.log 滚到 plugin.1.log，避免长期使用后无限增长 */
+function rotateLog() {
+    try {
+        const old = LOG.slice(0, -4) + ".1.log";
+        try { fs.unlinkSync(old); } catch (e) {}
+        fs.renameSync(LOG, old);
+    } catch (e) {}
+}
 
 function log(message) {
     try {
         fs.mkdirSync(path.dirname(LOG), { recursive: true });
-        fs.appendFileSync(LOG, new Date().toISOString() + " " + message + "\n");
+        const line = new Date().toISOString() + " " + message + "\n";
+        try {
+            if (fs.statSync(LOG).size + Buffer.byteLength(line) > LOG_MAX_BYTES) rotateLog();
+        } catch (e) { /* 文件还不存在，直接写 */ }
+        fs.appendFileSync(LOG, line);
     } catch (e) {}
 }
 
