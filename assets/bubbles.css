@@ -857,18 +857,26 @@ body .message-container:has(.msg-content-container.container--self):not(#ll) {
  * 20. 气泡背景：透明 / 模糊
  * ------------------------------------------------------------
  * 设置页「材质」里的两个开关，写 body[data-liuli-bubble-*]。
- * 模糊直接复用「材质模糊」那一项的 --ll-material-blur。
+ * 透明 = 去掉底色（留极淡的白和一条细描边，不然气泡整个看不见）；
+ * 模糊 = backdrop-filter，强度直接复用「材质模糊」的 --ll-material-blur。
  * ════════════════════════════════════════════════════════════ */
-body[data-liuli-bubble-clear="1"] .msg-content-container.container--self,
-body[data-liuli-bubble-clear="1"] .msg-content-container.container--others,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.container--self,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.container--others,
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--self,
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--others,
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--self,
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--others {
-  background: transparent !important;
+  background: rgba(var(--ll-on-glass-rgb), 0.06) !important;
+  background-image: none !important;
+  border: 1px solid rgba(var(--ll-tint-rgb), 0.16) !important;
 }
 
-body[data-liuli-bubble-blur="1"] .msg-content-container {
+body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.container--self,
+body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.container--others,
+body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--pic.container--self,
+body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--pic.container--others,
+body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--image.container--self,
+body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--image.container--others {
   -webkit-backdrop-filter: var(--ll-material-blur) !important;
   backdrop-filter: var(--ll-material-blur) !important;
 }
