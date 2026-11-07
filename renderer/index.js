@@ -555,6 +555,7 @@ function applySettings(cfg, broadcast) {
     b.dataset.liuliBubbleClear = llModeCfg.bubbleClear ? "1" : "0";
     b.dataset.liuliBubbleBlur = llModeCfg.bubbleBlur ? "1" : "0";
     llApplyModeSettings();
+    llFrostSchedule();
 
     if (broadcast !== false && !llSuppressBroadcast) {
         try { localStorage.setItem(LL_STORAGE_KEY, JSON.stringify(llModeCfg)); } catch (e) {}
@@ -1927,6 +1928,7 @@ function renderWallpaper(state, reason) {
     llWpLast = state;
     if (!state || !state.src) {
         el.textContent = "";
+        llFrostSchedule();
         // 只有明确"为什么渲染"时才写审计（resize 之类的重绘不刷屏）
         if (reason) {
             auditWallpaper("apply", {
@@ -1951,6 +1953,7 @@ function renderWallpaper(state, reason) {
                     skipped: "area-ratio-unknown", reason: reason, rev: llWallpaperRev()
                 });
             }
+            llFrostSchedule();
             return;
         }
         g = { size: "cover", position: "center" };
@@ -1968,6 +1971,7 @@ function renderWallpaper(state, reason) {
         "  background-size: " + g.size + " !important;" +
         "  background-repeat: no-repeat !important;" +
         "}";
+    llFrostSchedule();
     if (reason) {
         auditWallpaper("apply", {
             scope: llScopeName(), styleLen: el.textContent.length,
@@ -2027,6 +2031,177 @@ try {
         });
     });
 } catch (e) {}
+
+/* ════════════════════════════════════════════════════════════
+ * 气泡磨砂贴图（气泡 blur 开关用）
+ * ------------------------------------------------------------
+ * 每个气泡各自 backdrop-filter 等于每屏几十遍实时重采样，切窗口回来还要
+ * 全部重新栅格化。这里改成：壁纸按当前窗口几何画一遍、模糊一遍，存成
+ * dataURL 写进 --ll-frost-image；气泡用 background-attachment: fixed 从
+ * 同一张位图上裁自己那一块，静态、由浏览器缓存。
+ * ════════════════════════════════════════════════════════════ */
+var LL_FROST_MAX_W = 1400;   /* 贴图生成宽度上限（px） */
+var LL_FROST_GAP = 60;       /* 两次生成的最小间隔（ms），滑条拖动时按这个节奏跟随 */
+var llFrostUrl = "";
+var llFrostKey = "";
+var llFrostTimer = 0;
+var llFrostSeq = 0;
+var llFrostLast = 0;
+var llFrostDirty = false;
+var llFrostWarned = false;
+
+function llFrostBlurPx() {
+    const v = Number(llModeCfg && llModeCfg.blur);
+    return isFinite(v) && v > 0 ? v : 0;
+}
+
+/* 壁纸上某块区域的平均色，contain 留下的空白用它是为了模糊后边缘不发黑 */
+function llAverageColor(img) {
+    try {
+        const c = document.createElement("canvas");
+        c.width = 1;
+        c.height = 1;
+        const x = c.getContext("2d");
+        x.drawImage(img, 0, 0, 1, 1);
+        const d = x.getImageData(0, 0, 1, 1).data;
+        return "rgb(" + d[0] + "," + d[1] + "," + d[2] + ")";
+    } catch (e) {
+        return "rgb(128,128,128)";
+    }
+}
+
+/* 壁纸在窗口里的绘制矩形（CSS px）。和 bgGeometry() 写进 CSS 的 size/position 是同一套几何。 */
+function bgRectPx(area, imageRatio, boxW, boxH, fit) {
+    const ir = imageRatio > 0 ? imageRatio : 0;
+    if (!ir || !(boxW > 0) || !(boxH > 0)) return null;
+    const boxRatio = boxW / boxH;
+    const centered = function (w, h) {
+        return { x: (boxW - w) / 2, y: (boxH - h) / 2, w: w, h: h };
+    };
+    if (fit === "contain") {
+        return boxRatio > ir ? centered(boxH * ir, boxH) : centered(boxW, boxW / ir);
+    }
+    if (fit === "stretch") return { x: 0, y: 0, w: boxW, h: boxH };
+    if (area && area.w > 0.04 && area.h > 0.04) {
+        const n = normalizeAreaToRatio(area, boxRatio / ir);
+        if (n.w < 0.999 && n.h < 0.999) {
+            const w = boxW / n.w;
+            const h = boxH / n.h;
+            const px = Math.min(1, Math.max(0, n.x / (1 - n.w)));
+            const py = Math.min(1, Math.max(0, n.y / (1 - n.h)));
+            return { x: (boxW - w) * px, y: (boxH - h) * py, w: w, h: h };
+        }
+    }
+    return boxRatio > ir ? centered(boxW, boxW / ir) : centered(boxH * ir, boxH);
+}
+
+/* 画出模糊后的壁纸贴图，返回 dataURL（失败给空串） */
+function llFrostDraw(src, area, fit, boxW, boxH, blurPx) {
+    return llDecodeImage(src).then(function (img) {
+        const rect = bgRectPx(area, img.naturalWidth / img.naturalHeight, boxW, boxH, fit);
+        if (!rect) return "";
+        const k = Math.min(1, LL_FROST_MAX_W / boxW);
+        const cw = Math.max(1, Math.round(boxW * k));
+        const ch = Math.max(1, Math.round(boxH * k));
+        const pad = Math.ceil(blurPx * k * 3) + 2;
+        const dx = rect.x * k + pad;
+        const dy = rect.y * k + pad;
+        const dw = rect.w * k;
+        const dh = rect.h * k;
+        // 画布比窗口大一圈，四周用壁纸的 1px 边拉伸补齐：模糊时采样不会越界，边缘不发虚
+        const base = document.createElement("canvas");
+        base.width = cw + pad * 2;
+        base.height = ch + pad * 2;
+        const bx = base.getContext("2d");
+        if (!bx) return "";
+        const iw = img.naturalWidth;
+        const ih = img.naturalHeight;
+        bx.fillStyle = llAverageColor(img);
+        bx.fillRect(0, 0, base.width, base.height);
+        bx.drawImage(img, dx, dy, dw, dh);
+        bx.drawImage(img, 0, 0, iw, 1, dx, dy - pad, dw, pad);
+        bx.drawImage(img, 0, ih - 1, iw, 1, dx, dy + dh, dw, pad);
+        bx.drawImage(img, 0, 0, 1, ih, dx - pad, dy, pad, dh);
+        bx.drawImage(img, iw - 1, 0, 1, ih, dx + dw, dy, pad, dh);
+        bx.drawImage(img, 0, 0, 1, 1, dx - pad, dy - pad, pad, pad);
+        bx.drawImage(img, iw - 1, 0, 1, 1, dx + dw, dy - pad, pad, pad);
+        bx.drawImage(img, 0, ih - 1, 1, 1, dx - pad, dy + dh, pad, pad);
+        bx.drawImage(img, iw - 1, ih - 1, 1, 1, dx + dw, dy + dh, pad, pad);
+        const out = document.createElement("canvas");
+        out.width = cw;
+        out.height = ch;
+        const ox = out.getContext("2d");
+        if (!ox) return "";
+        try { ox.filter = "blur(" + (blurPx * k).toFixed(2) + "px)"; } catch (e) { }
+        ox.drawImage(base, -pad, -pad);
+        let url = "";
+        try { url = out.toDataURL("image/jpeg", 0.88); } catch (e) { return ""; }
+        // 先把图解码进缓存再交给 CSS，第一个气泡就是最终样子，不会先白一帧
+        return llDecodeImage(url).then(function () { return url; }, function () { return url; });
+    }, function () { return ""; });
+}
+
+function llFrostSet(url) {
+    if (url === llFrostUrl) {
+        document.body.dataset.liuliFrost = url ? "1" : "0";
+        return;
+    }
+    llFrostUrl = url;
+    document.body.style.setProperty("--ll-frost-image", url ? 'url("' + url + '")' : "none");
+    document.body.dataset.liuliFrost = url ? "1" : "0";
+}
+
+/* 生成当前配置对应的贴图；配置没变就复用上一张 */
+function llFrostCompose() {
+    const st = loadWallpaperState();
+    const blurPx = llFrostBlurPx();
+    const boxW = window.innerWidth || 0;
+    const boxH = window.innerHeight || 0;
+    if (!st || !st.src || !(blurPx > 0) || !(boxW > 0) || !(boxH > 0)) return Promise.resolve("");
+    const fit = st.fit || "cover";
+    const known = getImageRatio(st.src);
+    const ready = known ? Promise.resolve(known) : primeWallpaperRatioOnce(st.src);
+    return ready.then(function (ir) {
+        if (!ir) return "";
+        const key = [st.src.length, st.src.slice(-64), st.area ? JSON.stringify(st.area) : "", fit, blurPx, boxW, boxH, ir].join("|");
+        if (key === llFrostKey && llFrostUrl) return llFrostUrl;
+        return llFrostDraw(st.src, st.area, fit, boxW, boxH, blurPx).then(function (url) {
+            if (url) llFrostKey = key;
+            else if (!llFrostWarned) {
+                llFrostWarned = true;
+                try { console.warn("[liuli-dsh-theme] 气泡磨砂贴图生成失败（画布不可用或图片无法读回）"); } catch (e) { }
+            }
+            return url;
+        });
+    });
+}
+
+function llFrostRun() {
+    const seq = ++llFrostSeq;
+    llFrostCompose().then(function (url) {
+        if (seq === llFrostSeq) llFrostSet(url);
+        if (llFrostDirty) llFrostSchedule();
+    }, function () {
+        if (seq === llFrostSeq) llFrostSet("");
+        if (llFrostDirty) llFrostSchedule();
+    });
+}
+
+function llFrostSchedule(immediate) {
+    llFrostDirty = true;
+    if (llFrostTimer) return;
+    let wait = 0;
+    if (!immediate) {
+        const gap = LL_FROST_GAP - (performance.now() - llFrostLast);
+        wait = gap > 0 ? gap : 0;
+    }
+    llFrostTimer = setTimeout(function () {
+        llFrostTimer = 0;
+        llFrostDirty = false;
+        llFrostLast = performance.now();
+        llFrostRun();
+    }, wait);
+}
 
 /* 跨窗口同步（设置页改 → 主界面跟着换） */
 try {

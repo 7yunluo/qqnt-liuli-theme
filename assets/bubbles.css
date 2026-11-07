@@ -858,7 +858,8 @@ body .message-container:has(.msg-content-container.container--self):not(#ll) {
  * ------------------------------------------------------------
  * 设置页「材质」里的两个开关，写 body[data-liuli-bubble-*]。
  * 透明 = 去掉底色（留极淡的白和一条细描边，不然气泡整个看不见）；
- * 模糊 = backdrop-filter，强度直接复用「材质模糊」的 --ll-material-blur。
+ * 模糊 = 贴一层预先模糊好的壁纸（renderer 生成的 --ll-frost-image），
+ *        background-attachment: fixed 让每个气泡都按窗口坐标从同一张图上裁。
  * ════════════════════════════════════════════════════════════ */
 /* 自己：品牌色压到很淡，保留色相 */
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.container--self,
@@ -878,17 +879,22 @@ body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-
   border: 1px solid rgba(var(--ll-tint-rgb), 0.12) !important;
 }
 
-body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.container--self,
-body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.container--others,
-body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--pic.container--self,
-body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--pic.container--others,
-body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--image.container--self,
-body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.mix-message__container--image.container--others {
-  -webkit-backdrop-filter: var(--ll-material-blur) !important;
-  backdrop-filter: var(--ll-material-blur) !important;
-  /* 新消息插入时先建好合成层，避免「发出去过一会儿才模糊」 */
-  will-change: backdrop-filter;
-  transform: translateZ(0);
+/* 模糊：一张按当前窗口几何模糊好的壁纸贴图，所有气泡共用。
+ * data-liuli-frost=1 表示贴图已就绪；透明贴纸（无底板）不贴，否则会露出底色方块。 */
+body[data-liuli-bubble-blur="1"][data-liuli-frost="1"] .message-container .msg-content-container.container--self:not([data-liuli-alpha="1"]):not([data-liuli-alpha="pending"]),
+body[data-liuli-bubble-blur="1"][data-liuli-frost="1"] .message-container .msg-content-container.container--others:not([data-liuli-alpha="1"]):not([data-liuli-alpha="pending"]),
+body[data-liuli-bubble-blur="1"][data-liuli-frost="1"] .message-container .msg-content-container.mix-message__container--pic.container--self:not([data-liuli-alpha="1"]):not([data-liuli-alpha="pending"]),
+body[data-liuli-bubble-blur="1"][data-liuli-frost="1"] .message-container .msg-content-container.mix-message__container--pic.container--others:not([data-liuli-alpha="1"]):not([data-liuli-alpha="pending"]),
+body[data-liuli-bubble-blur="1"][data-liuli-frost="1"] .message-container .msg-content-container.mix-message__container--image.container--self:not([data-liuli-alpha="1"]):not([data-liuli-alpha="pending"]),
+body[data-liuli-bubble-blur="1"][data-liuli-frost="1"] .message-container .msg-content-container.mix-message__container--image.container--others:not([data-liuli-alpha="1"]):not([data-liuli-alpha="pending"]) {
+  background-image:
+    linear-gradient(rgba(var(--ll-veil-rgb, 0, 0, 0), var(--ll-wallpaper-dim, 0.18)),
+      rgba(var(--ll-veil-rgb, 0, 0, 0), var(--ll-wallpaper-dim, 0.18))),
+    var(--ll-frost-image) !important;
+  background-size: 100% 100% !important;
+  background-position: 0 0 !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
 }
 
 /* 气泡的阴影 / 泛光跟随「阴影强度」「泛光强度」两个滑条 */
