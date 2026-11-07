@@ -1035,6 +1035,22 @@ function groupMessages() {
  * 但不超过组内第一条气泡的顶 —— 头像始终贴着这一组消息。
  * 原位置用气泡计算（transform 不影响气泡的 rect）。
  */
+/* 量第一个可见头像，把「头像高 + 1px」写进 --liuli-bubble-h，气泡最小高度靠它 */
+function syncBubbleHeight() {
+    try {
+        var list = document.querySelectorAll(".message-container > .avatar-span");
+        for (var i = 0; i < list.length && i < 8; i++) {
+            var h = Math.round(list[i].getBoundingClientRect().height);
+            if (h > 0) {
+                if (document.documentElement.style.getPropertyValue("--liuli-bubble-h") !== (h + 1) + "px") {
+                    document.documentElement.style.setProperty("--liuli-bubble-h", (h + 1) + "px");
+                }
+                return;
+            }
+        }
+    } catch (e) { }
+}
+
 function stickAvatars() {
     try {
         var vp = document.querySelector(".chat-msg-area__vlist") || document.querySelector(".chat-msg-area");
@@ -3242,7 +3258,7 @@ async function initPanel() {
         applyOverrides();
         fixContrast();
         normalizeColors();
-        setInterval(() => { if (window.__liuliPause) return; if (performance.now() - (window.__llScrollT || 0) < 600) return; /* 正在滚动：这一轮跳过，免得滚动中卡一下 */ if (document.querySelector(".q-dialog-modal")) { mountInputBar(); return; } applyOverrides(); fixContrast(); normalizeColors(); keepWindowControlsVisible(); mountInputBar(); groupMessages(); stickAvatars(); markQuoteRoots(); moveSenderIntoBubble(); ensureHoverEntries(); llWatchContactList(); llGroupMembersPass(); llMarkdownPass(); llLayoutPass(); }, 1500);
+        setInterval(() => { if (window.__liuliPause) return; if (performance.now() - (window.__llScrollT || 0) < 600) return; /* 正在滚动：这一轮跳过，免得滚动中卡一下 */ if (document.querySelector(".q-dialog-modal")) { mountInputBar(); return; } applyOverrides(); fixContrast(); normalizeColors(); keepWindowControlsVisible(); mountInputBar(); groupMessages(); syncBubbleHeight(); stickAvatars(); markQuoteRoots(); moveSenderIntoBubble(); ensureHoverEntries(); llWatchContactList(); llGroupMembersPass(); llMarkdownPass(); llLayoutPass(); }, 1500);
         try { installLayout(function () { llSyncPins(); }); } catch (e) { console.warn("[liuli-dsh-theme] layout failed:", e && e.message); }
         try { installArkExternal(window.liuli_api); } catch (e) { console.warn("[liuli-dsh-theme] ark external failed:", e && e.message); }
         installMarkdownObserver();

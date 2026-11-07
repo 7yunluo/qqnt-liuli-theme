@@ -18,7 +18,7 @@
   border-radius: 14px 4px 14px 14px !important;
   background: rgba(var(--ll-brand-rgb), 0.42) !important;
   border: none !important;
-  padding: 8px 13px 8px !important;
+  padding: 3px 13px !important;
   position: relative !important;
   box-shadow: 0 1px 2px rgba(var(--ll-shadow-rgb), 0.16) !important;
 }
@@ -28,7 +28,7 @@
   border-radius: 4px 14px 14px 14px !important;
   background: rgba(var(--ll-acrylic), calc(var(--ll-material-opacity) + 0.16)) !important;
   border: none !important;
-  padding: 8px 13px 8px !important;
+  padding: 3px 13px !important;
   position: relative !important;
   box-shadow: 0 1px 2px rgba(var(--ll-shadow-rgb), 0.16) !important;
 }
@@ -47,7 +47,7 @@
   align-items: center !important;
   gap: 5px !important;
   max-width: 100% !important;
-  margin: 0 0 3px 0 !important;
+  margin: 0 0 4px 0 !important;
   padding: 0 !important;
   font-size: 12px !important;
   font-weight: 500 !important;
@@ -101,7 +101,18 @@
 .msg-content-container .message-content,
 .msg-content-container > [class*="text"] {
   font-size: 14px !important;
-  line-height: 1.45 !important;
+  line-height: 1.25 !important;
+}
+
+/* 气泡内的昵称、时间、引用跟正文同一行高，行间松紧一致 */
+.msg-content-container * {
+  line-height: 1.25 !important;
+}
+
+/* 群聊气泡上方还有一行发送者名字，上下留白比单行消息多 3px */
+.msg-content-container:has(.user-name) {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
 }
 
 /* ── 5. 回复引用：整块只有一条竖线 ──
@@ -290,7 +301,9 @@
 .message-container .msg-content-container {
   /* 气泡贴底，长内容向上长；给一点底部留白，与头像底边齐平 */
   margin-bottom: 0 !important;
-  min-height: 36px !important;
+  /* 最小高度跟随头像（--liuli-bubble-h 由渲染进程按头像实测高度 + 1px 写入），内容垂直居中 */
+  min-height: var(--liuli-bubble-h, 33px) !important;
+  align-content: center !important;
 }
 
 /* 头像单独且没有被隐藏时，保证它在行内可见 */

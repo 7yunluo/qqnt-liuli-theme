@@ -230,6 +230,14 @@
   display: none !important;
 }
 
+/* 5.1 输入框为空（发送键禁用）时 QQ 会给它挂 no-padding-right，
+ * 那条样式带 min-width: 78px，会把 30px 的圆键撑成胶囊，这里收回 30px。 */
+.chat-input-area > .operation .no-padding-right {
+  width: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+}
+
 /* 6. 底部拖动条隐藏 */
 .chat-input-area > .resize-handler,
 .chat-input-area > .resize-handler.ns {
