@@ -248,6 +248,10 @@
  * 改成 visible 会让消息列表溢出到窗口底部，把输入区挤出去/盖住，
  * 表现就是「输入框完全看不见」。浮层改用 position: fixed 规避裁切。 */
 
-
-
-
+/* 8. 表情面板压在输入区上沿之上。
+ * QQ 按「距输入区底边固定距离」定位面板，输入区改成 auto 高度后会落进输入胶囊顶部；
+ * 这里改成贴在输入区上沿往上 6px，多行输入长高时也跟着走。 */
+body .expression-panel:not(#ll) {
+  top: auto !important;
+  bottom: calc(100% + 6px) !important;
+}
