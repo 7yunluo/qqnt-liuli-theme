@@ -551,6 +551,7 @@ function applySettings(cfg, broadcast) {
     b.style.setProperty("--ll-material-blur", "blur(" + llModeCfg.blur + "px) saturate(1.6)");
     b.style.setProperty("--ll-material-opacity", String(llModeCfg.opacity));
     b.style.setProperty("--ll-glow-strength", String(llModeCfg.glow));
+    b.style.setProperty("--liuli-shadow-strength", String(llModeCfg.shadow));
     b.dataset.liuliBubbleClear = llModeCfg.bubbleClear ? "1" : "0";
     b.dataset.liuliBubbleBlur = llModeCfg.bubbleBlur ? "1" : "0";
     llApplyModeSettings();
