@@ -411,7 +411,9 @@ const DEFAULT_SETTINGS = {
     // 壁纸遮罩（需求 A）：亮色 / 暗色主题各一份浓度，外加各自的遮罩颜色
     //   veilX = "light" → 盖一层白；veilX = "dark" → 盖一层黑
     dimLight: 0.18, dimDark: 0.18,
-    veilLight: "light", veilDark: "dark"
+    veilLight: "light", veilDark: "dark",
+    // 消息气泡：底色透明 / 背景模糊（模糊强度沿用 blur 那一项）
+    bubbleClear: false, bubbleBlur: false
 };
 const DIM_MAX = 0.8;
 const DIM_FALLBACK = 0.18;
@@ -544,6 +546,8 @@ function applySettings(cfg, broadcast) {
     b.style.setProperty("--ll-material-blur", "blur(" + llModeCfg.blur + "px) saturate(1.6)");
     b.style.setProperty("--ll-material-opacity", String(llModeCfg.opacity));
     b.style.setProperty("--ll-glow-strength", String(llModeCfg.glow));
+    b.dataset.liuliBubbleClear = llModeCfg.bubbleClear ? "1" : "0";
+    b.dataset.liuliBubbleBlur = llModeCfg.bubbleBlur ? "1" : "0";
     llApplyModeSettings();
 
     if (broadcast !== false && !llSuppressBroadcast) {
@@ -3150,6 +3154,8 @@ function buildPanelContent(host, settings) {
         pageLook.appendChild(wrap);
     }
 
+    buildBubbleToggles(pageLook);
+
     // 两条遮罩共用的说明（需求 A.4 要求的提示文字）
     const veilNote = document.createElement("div");
     veilNote.className = "liuli-field__hint liuli-veil__note";
@@ -3452,6 +3458,44 @@ function installMarkdownObserver() {
     window.__llMdObserver.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("storage", e => { if (e.key === LL_MD_KEY) llMarkdownPass(); });
     run();
+}
+
+/* 「气泡背景」两个开关：透明 / 模糊。模糊直接复用「材质模糊」那一项的 --ll-material-blur */
+function buildBubbleToggles(host) {
+    const make = function (key, label, opts) {
+        const row = document.createElement("div");
+        row.className = "liuli-wp-fit liuli-mode-row";
+        const lab = document.createElement("span");
+        lab.textContent = label;
+        const seg = document.createElement("div");
+        seg.className = "liuli-seg";
+        row.appendChild(lab);
+        row.appendChild(seg);
+        host.appendChild(row);
+        const btns = [];
+        opts.forEach(function (o) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "liuli-seg__item";
+            b.textContent = o.text;
+            b.addEventListener("click", function () {
+                llModeCfg[key] = o.value;
+                applySettings(llModeCfg);
+                saveSettings(llModeCfg);
+                refresh();
+            });
+            seg.appendChild(b);
+            btns.push([o.value, b]);
+        });
+        function refresh() {
+            const cur = !!(llModeCfg || DEFAULT_SETTINGS)[key];
+            btns.forEach(function (pair) { pair[1].classList.toggle("is-active", pair[0] === cur); });
+        }
+        refresh();
+        llVeilSegRefreshers.push(refresh);
+    };
+    make("bubbleClear", "气泡背景", [{ text: "有底色", value: false }, { text: "透明", value: true }]);
+    make("bubbleBlur", "气泡模糊", [{ text: "关闭", value: false }, { text: "开启", value: true }]);
 }
 
 function buildMarkdownControls(host) {

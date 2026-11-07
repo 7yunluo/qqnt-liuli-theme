@@ -851,3 +851,24 @@ body .message-container:has(.msg-content-container.container--self):not(#ll) {
 .message-container .message-content__wrapper .msg-content-container.container--personalization:not(#ll)::after {
   content: none !important;
 }
+
+
+/* ════════════════════════════════════════════════════════════
+ * 20. 气泡背景：透明 / 模糊
+ * ------------------------------------------------------------
+ * 设置页「材质」里的两个开关，写 body[data-liuli-bubble-*]。
+ * 模糊直接复用「材质模糊」那一项的 --ll-material-blur。
+ * ════════════════════════════════════════════════════════════ */
+body[data-liuli-bubble-clear="1"] .msg-content-container.container--self,
+body[data-liuli-bubble-clear="1"] .msg-content-container.container--others,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--self,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--others,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--self,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--others {
+  background: transparent !important;
+}
+
+body[data-liuli-bubble-blur="1"] .msg-content-container {
+  -webkit-backdrop-filter: var(--ll-material-blur) !important;
+  backdrop-filter: var(--ll-material-blur) !important;
+}
