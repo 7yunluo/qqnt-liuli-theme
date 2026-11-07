@@ -7,6 +7,7 @@
 const SLUG = "liuli-dsh-theme";
 import { installLayout, applyBar, nativeBarItem, applyAll as llLayoutPass, buildLayoutSection } from "./layout-custom.js";
 import { installArkExternal } from "./ark-external.js";
+import { installTransparentImages } from "./transparent-image.js";
 import { ROLE_KEY, loadRoles, roleVars, accentPalette, buildRoleControls } from "./color-roles.js";
 // 诊断运行时（契约 installer/DIAG-COVERAGE.md 第三、3.2、3.3、3.5 节）：
 // 尽早安装，后面整个模块体里任何 console.error / 未捕获异常 / Promise 拒绝
@@ -3258,7 +3259,7 @@ async function initPanel() {
         applyOverrides();
         fixContrast();
         normalizeColors();
-        setInterval(() => { if (window.__liuliPause) return; if (performance.now() - (window.__llScrollT || 0) < 600) return; /* 正在滚动：这一轮跳过，免得滚动中卡一下 */ if (document.querySelector(".q-dialog-modal")) { mountInputBar(); return; } applyOverrides(); fixContrast(); normalizeColors(); keepWindowControlsVisible(); mountInputBar(); groupMessages(); syncBubbleHeight(); stickAvatars(); markQuoteRoots(); moveSenderIntoBubble(); ensureHoverEntries(); llWatchContactList(); llGroupMembersPass(); llMarkdownPass(); llLayoutPass(); }, 1500);
+        setInterval(() => { if (window.__liuliPause) return; if (performance.now() - (window.__llScrollT || 0) < 600) return; /* 正在滚动：这一轮跳过，免得滚动中卡一下 */ if (document.querySelector(".q-dialog-modal")) { mountInputBar(); return; } applyOverrides(); fixContrast(); normalizeColors(); keepWindowControlsVisible(); mountInputBar(); groupMessages(); syncBubbleHeight(); installTransparentImages(); stickAvatars(); markQuoteRoots(); moveSenderIntoBubble(); ensureHoverEntries(); llWatchContactList(); llGroupMembersPass(); llMarkdownPass(); llLayoutPass(); }, 1500);
         try { installLayout(function () { llSyncPins(); }); } catch (e) { console.warn("[liuli-dsh-theme] layout failed:", e && e.message); }
         try { installArkExternal(window.liuli_api); } catch (e) { console.warn("[liuli-dsh-theme] ark external failed:", e && e.message); }
         installMarkdownObserver();

@@ -668,6 +668,20 @@
   padding: 4px 8px 2px !important;
 }
 
+/* 图片本身带透明像素（表情包、贴纸）时不画气泡底板，只留图片。
+ * data-liuli-alpha 由 renderer/transparent-image.js 采样后打上。 */
+.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha="1"],
+.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha="1"],
+.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha="1"].container--self,
+.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha="1"].container--others,
+.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha="1"].container--self,
+.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha="1"].container--others {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
 .message-container .msg-content-container.ark-msg-content-container,
 .message-container .msg-content-container:has(.ark-view-message),
 .message-container .msg-content-container:has(.forward-msg) {
