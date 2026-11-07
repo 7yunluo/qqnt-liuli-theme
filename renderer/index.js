@@ -1467,6 +1467,26 @@ function llMotionPass(added) {
     } catch (e) { /* 静默 */ }
 }
 
+/* 视觉管线（分组、气泡高度、头像贴合、引用线、Markdown、布局）。
+ * 新消息进 DOM 就用 rAF 合并跑一次，不再等 1.5s 的定时器。 */
+var llVisualQueued = false;
+function liuliVisualPassNow() {
+    try {
+        if (window.__liuliPause) return;
+        if (performance.now() - (window.__llScrollT || 0) < 250) return;
+        if (document.querySelector(".q-dialog-modal")) { mountInputBar(); return; }
+        applyOverrides(); fixContrast(); normalizeColors(); keepWindowControlsVisible(); mountInputBar();
+        groupMessages(); syncBubbleHeight(); installTransparentImages(); stickAvatars(); markQuoteRoots();
+        moveSenderIntoBubble(); ensureHoverEntries(); llWatchContactList(); llGroupMembersPass();
+        llMarkdownPass(); llLayoutPass();
+    } catch (e) { }
+}
+function liuliVisualPass() {
+    if (llVisualQueued) return;
+    llVisualQueued = true;
+    requestAnimationFrame(function () { llVisualQueued = false; liuliVisualPassNow(); });
+}
+
 function installMessageObserver() {
     if (window.__liuliMsgObs) return;
     var busy = false;
@@ -1499,9 +1519,14 @@ function installMessageObserver() {
         }
         try { liuliMessagePass(); } catch (e) { /* 静默 */ }
         try { llMotionPass(added); } catch (e) { /* 静默 */ }
+        try { liuliVisualPass(); } catch (e) { /* 静默 */ }
         finally { obs.takeRecords(); busy = false; }
     });
     obs.observe(document.body, { childList: true, subtree: true });
+    // 图片解码完成会改变气泡高度，立刻重排一次
+    document.addEventListener("load", function (e) {
+        if (e.target && e.target.tagName === "IMG") liuliVisualPass();
+    }, true);
     window.__liuliMsgObs = obs;
 }
 
@@ -3259,13 +3284,14 @@ async function initPanel() {
         applyOverrides();
         fixContrast();
         normalizeColors();
-        setInterval(() => { if (window.__liuliPause) return; if (performance.now() - (window.__llScrollT || 0) < 600) return; /* 正在滚动：这一轮跳过，免得滚动中卡一下 */ if (document.querySelector(".q-dialog-modal")) { mountInputBar(); return; } applyOverrides(); fixContrast(); normalizeColors(); keepWindowControlsVisible(); mountInputBar(); groupMessages(); syncBubbleHeight(); installTransparentImages(); stickAvatars(); markQuoteRoots(); moveSenderIntoBubble(); ensureHoverEntries(); llWatchContactList(); llGroupMembersPass(); llMarkdownPass(); llLayoutPass(); }, 1500);
+        setInterval(liuliVisualPass, 1500);   // 兜底：正常情况下每条消息进 DOM 就即时跑过了
         try { installLayout(function () { llSyncPins(); }); } catch (e) { console.warn("[liuli-dsh-theme] layout failed:", e && e.message); }
         try { installArkExternal(window.liuli_api); } catch (e) { console.warn("[liuli-dsh-theme] ark external failed:", e && e.message); }
         installMarkdownObserver();
         installAvatarStick();
         ensureHoverEntries();
         installMessageObserver();
+        liuliVisualPass();
         installSideListObserver();
         llWatchContactList();
         liuliMessagePass();
@@ -3414,11 +3440,13 @@ function llHandleAdded(records) {
 function installMarkdownObserver() {
     if (window.__llMdObserver) return;
     // 性能：DOM 变动后 150ms 才跑一次（滚动期间合并成一次），不再每帧跑
-    let timer = 0;
-    const run = () => { timer = 0; llMarkdownPass(); llAtPass(); };
+    let queued = false;
+    const run = () => { llMarkdownPass(); llAtPass(); };
     window.__llMdObserver = new MutationObserver(records => {
         try { llHandleAdded(records); } catch (e) {}
-        if (!timer) timer = setTimeout(run, 150);
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => { queued = false; run(); });
     });
     window.__llMdObserver.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("storage", e => { if (e.key === LL_MD_KEY) llMarkdownPass(); });
