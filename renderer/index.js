@@ -432,6 +432,8 @@ function llMigrateSettings(raw) {
         out.dimDark = legacy;
     }
     delete out.dim;
+    // 已下线的「气泡模糊」开关，旧配置里可能还留着
+    delete out.bubbleBlur;
     if (out.veilLight !== "light" && out.veilLight !== "dark") out.veilLight = "light";
     if (out.veilDark !== "light" && out.veilDark !== "dark") out.veilDark = "dark";
     return out;
