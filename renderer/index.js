@@ -885,7 +885,8 @@ function mountInputBar() {
         var box = area.querySelector(".msg-input");
         var br = box ? box.getBoundingClientRect() : r;
         overlay.style.left = Math.round(br.left + 6) + "px";
-        overlay.style.top = Math.round(br.bottom - 6 - 28) + "px";
+        // 与发送键同高（30px）、同底边距（7px），两边看起来一样大、一条水平线
+        overlay.style.top = Math.round(br.bottom - 7 - 30) + "px";
 
         // 状态跟随实际，而不是相信本地记录：
         // 工具栏可能被"点别处收起"或 QQ 自己移除，local 的 data-open 会失真，
@@ -946,7 +947,7 @@ function llSyncPins(overlay) {
         pins.appendChild(b);
     });
     // 输入框左边留出按钮的位置：每个按钮 28 + 间距 4，外加左右边距
-    document.body.style.setProperty("--liuli-bar-pad", (12 + (labels.length + 1) * 32) + "px");
+    document.body.style.setProperty("--liuli-bar-pad", (12 + (labels.length + 1) * 34) + "px");
 }
 
 

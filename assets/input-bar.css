@@ -110,8 +110,8 @@
 #liuli-emoji-btn,
 #liuli-func-toggle {
   position: static !important;
-  width: 28px !important;
-  height: 28px !important;
+  width: 30px !important;
+  height: 30px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -120,7 +120,7 @@
   cursor: pointer !important;
   padding: 0 !important;
   margin: 0 !important;
-  background: rgba(var(--ll-on-glass-rgb), 0.1) !important;
+  background: rgba(var(--ll-on-glass-rgb), 0.16) !important;
   color: var(--ll-on-glass-2) !important;
   transition: background-color 140ms ease, color 140ms ease, transform 170ms ease !important;
   pointer-events: auto !important;
