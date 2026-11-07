@@ -1046,12 +1046,13 @@ function groupMessages() {
  * 但不超过组内第一条气泡的顶 —— 头像始终贴着这一组消息。
  * 原位置用气泡计算（transform 不影响气泡的 rect）。
  */
-/* 量第一个可见头像，把「头像高 + 1px」写进 --liuli-bubble-h，气泡最小高度靠它 */
+/* 量第一个可见头像，把「头像高 + 1px」写进 --liuli-bubble-h，气泡最小高度靠它。
+ * 用 offsetHeight 而不是 rect：入场动画在缩放头像，rect 会量成 31px，气泡最小高度跟着抖 1px。 */
 function syncBubbleHeight() {
     try {
         var list = document.querySelectorAll(".message-container > .avatar-span");
         for (var i = 0; i < list.length && i < 8; i++) {
-            var h = Math.round(list[i].getBoundingClientRect().height);
+            var h = list[i].offsetHeight;
             if (h > 0) {
                 if (document.documentElement.style.getPropertyValue("--liuli-bubble-h") !== (h + 1) + "px") {
                     document.documentElement.style.setProperty("--liuli-bubble-h", (h + 1) + "px");
@@ -1060,6 +1061,18 @@ function syncBubbleHeight() {
             }
         }
     } catch (e) { }
+}
+
+/* 刚插入的行：QQ 还没把列表滚到位，这时量到的位置是临时的，不能拿它算吸附 */
+var llFreshAt = new WeakMap();
+function markFreshRows(items) {
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it || it.nodeType !== 1) continue;
+        var rows = it.classList && it.classList.contains("message-container")
+            ? [it] : it.querySelectorAll(".message-container");
+        for (var j = 0; j < rows.length; j++) llFreshAt.set(rows[j], performance.now());
+    }
 }
 
 function stickAvatars() {
@@ -1085,11 +1098,18 @@ function stickAvatars() {
             if (g !== "last" && g !== "single") continue;
             var av = mc.querySelector(":scope > .avatar-span");
             if (!av) continue;
+            // 插入后 600ms 内不吸附：这段时间列表还在被 QQ 往上滚，量到的 groupTop / 气泡底都是临时值，
+            // 算出来的负位移会让头像先被推到组顶、等滚动结束才落回行底。
+            var fresh = llFreshAt.get(mc);
+            if (fresh && performance.now() - fresh < 600) continue;
             var h = av.offsetHeight || 32;
             var natBottom = br.bottom;
             var natTop = natBottom - h;
             var ty = 0;
-            if (natBottom > vr.bottom - 4) ty = (vr.bottom - 4) - natBottom;
+            // 以整行的底边判断是否出界：静止时最后一条的气泡底就在视口下沿附近，
+            // 用「气泡底 > 视口底 - 4」当判据会把行自身的 2px 下内边距算成出界，静止也把头像顶上去几像素。
+            var rowRect = mc.getBoundingClientRect();
+            if (rowRect.bottom > vr.bottom + 1) ty = (vr.bottom - 4) - natBottom;
             var minTy = groupTop - natTop;
             if (ty < minTy) ty = minTy;
             if (ty > 0) ty = 0;
@@ -1527,6 +1547,7 @@ function installMessageObserver() {
                 else if (nd.querySelectorAll) nd.querySelectorAll(".ml-item[id]").forEach(function (x) { added.push(x); });
             }
         }
+        try { markFreshRows(added); } catch (e) { /* 静默 */ }
         try { liuliMessagePass(); } catch (e) { /* 静默 */ }
         try { llMotionPass(added); } catch (e) { /* 静默 */ }
         try { liuliVisualPass(); } catch (e) { /* 静默 */ }
