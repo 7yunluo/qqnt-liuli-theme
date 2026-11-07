@@ -85,10 +85,13 @@ function isPicBubble(bubble) {
     return false;
 }
 
-/* 只处理纯图片消息：卡片、图文混排、文字气泡里的行内表情一律不动 */
+/* 只处理纯图片消息：卡片、图文混排、文字气泡里的行内表情一律不动。
+ * 小程序 / 转发卡片也可能带 --pic 类，它们的底板不能去掉（去掉就和壁纸糊在一起）。 */
 function bubbleOf(img) {
     const bubble = img.closest(".msg-content-container");
     if (!bubble || !isPicBubble(bubble)) return null;
+    if (bubble.classList.contains("ark-msg-content-container")) return null;
+    if (bubble.querySelector(".ark-view-message, .forward-msg")) return null;
     if (bubble.querySelectorAll("img").length !== 1) return null;
     return bubble;
 }

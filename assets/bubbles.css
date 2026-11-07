@@ -683,12 +683,16 @@
   box-shadow: none !important;
 }
 
-.message-container .msg-content-container.ark-msg-content-container,
-.message-container .msg-content-container:has(.ark-view-message),
-.message-container .msg-content-container:has(.forward-msg) {
+/* 卡片（小程序、转发记录）永远要有底板：它们也可能带 --pic 类、被打上 data-liuli-alpha，
+ * 上面那条透明规则会把整块卡片打穿，只剩壁纸。
+ * :not(#ll) 是为了压过上面那条的属性选择器特异性。 */
+.message-container .msg-content-container.ark-msg-content-container:not(#ll),
+.message-container .msg-content-container:has(.ark-view-message):not(#ll),
+.message-container .msg-content-container:has(.forward-msg):not(#ll) {
   background: rgba(var(--ll-acrylic), 0.86) !important;
   border-radius: 16px !important;
   padding: 8px !important;
+  box-shadow: none !important;
 }
 .message-container .msg-content-container.ark-msg-content-container::before,
 .message-container .msg-content-container:has(.ark-view-message)::before,
