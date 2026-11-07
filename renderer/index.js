@@ -542,7 +542,12 @@ function llApplyModeSettings() {
 
 function applySettings(cfg, broadcast) {
     const b = document.body;
-    llModeCfg = llNormalizeSettings(cfg);
+    const prev = llModeCfg || DEFAULT_SETTINGS;
+    const next = llNormalizeSettings(cfg);
+    // 面板里的局部 settings 可能是加这两个开关之前建的快照，缺键就沿用当前值，别把开关打回关闭
+    if (!(cfg && Object.prototype.hasOwnProperty.call(cfg, "bubbleClear"))) next.bubbleClear = prev.bubbleClear;
+    if (!(cfg && Object.prototype.hasOwnProperty.call(cfg, "bubbleBlur"))) next.bubbleBlur = prev.bubbleBlur;
+    llModeCfg = next;
     b.style.setProperty("--ll-material-blur", "blur(" + llModeCfg.blur + "px) saturate(1.6)");
     b.style.setProperty("--ll-material-opacity", String(llModeCfg.opacity));
     b.style.setProperty("--ll-glow-strength", String(llModeCfg.glow));
@@ -3154,7 +3159,7 @@ function buildPanelContent(host, settings) {
         pageLook.appendChild(wrap);
     }
 
-    buildBubbleToggles(pageLook);
+    buildBubbleToggles(pageLook, settings);
 
     // 两条遮罩共用的说明（需求 A.4 要求的提示文字）
     const veilNote = document.createElement("div");
@@ -3461,7 +3466,7 @@ function installMarkdownObserver() {
 }
 
 /* 「气泡背景」两个开关：透明 / 模糊。模糊直接复用「材质模糊」那一项的 --ll-material-blur */
-function buildBubbleToggles(host) {
+function buildBubbleToggles(host, snapshot) {
     const make = function (key, label, opts) {
         const row = document.createElement("div");
         row.className = "liuli-wp-fit liuli-mode-row";
@@ -3480,6 +3485,7 @@ function buildBubbleToggles(host) {
             b.textContent = o.text;
             b.addEventListener("click", function () {
                 llModeCfg[key] = o.value;
+                if (snapshot) snapshot[key] = o.value;   // 面板快照也同步，滑条再触发 applySettings 时不会被冲掉
                 applySettings(llModeCfg);
                 saveSettings(llModeCfg);
                 refresh();

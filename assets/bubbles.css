@@ -860,15 +860,22 @@ body .message-container:has(.msg-content-container.container--self):not(#ll) {
  * 透明 = 去掉底色（留极淡的白和一条细描边，不然气泡整个看不见）；
  * 模糊 = backdrop-filter，强度直接复用「材质模糊」的 --ll-material-blur。
  * ════════════════════════════════════════════════════════════ */
+/* 自己：品牌色压到很淡，保留色相 */
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.container--self,
-body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.container--others,
 body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--self,
-body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--others,
-body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--self,
-body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--others {
-  background: rgba(var(--ll-on-glass-rgb), 0.06) !important;
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--self {
+  background: rgba(var(--ll-brand-rgb), var(--liuli-clear-self, 0.16)) !important;
   background-image: none !important;
-  border: 1px solid rgba(var(--ll-tint-rgb), 0.16) !important;
+  border: 1px solid rgba(var(--ll-brand-rgb), 0.20) !important;
+}
+
+/* 对方：中性玻璃色压淡 */
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.container--others,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--pic.container--others,
+body[data-liuli-bubble-clear="1"] .message-container .msg-content-container.mix-message__container--image.container--others {
+  background: rgba(var(--ll-acrylic), var(--liuli-clear-other, 0.14)) !important;
+  background-image: none !important;
+  border: 1px solid rgba(var(--ll-tint-rgb), 0.12) !important;
 }
 
 body[data-liuli-bubble-blur="1"] .message-container .msg-content-container.container--self,
