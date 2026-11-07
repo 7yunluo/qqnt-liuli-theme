@@ -669,13 +669,14 @@
 }
 
 /* 图片本身带透明像素（表情包、贴纸）时不画气泡底板，只留图片。
- * data-liuli-alpha 由 renderer/transparent-image.js 采样后打上。 */
-.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha="1"],
-.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha="1"],
-.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha="1"].container--self,
-.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha="1"].container--others,
-.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha="1"].container--self,
-.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha="1"].container--others {
+ * data-liuli-alpha 由 renderer/transparent-image.js 写入：pending = 还没判定完，先按无底板渲染免得闪；
+ * 0 = 不透明（恢复气泡），1 = 透明。 */
+.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha]:not([data-liuli-alpha="0"]),
+.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha]:not([data-liuli-alpha="0"]),
+.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha]:not([data-liuli-alpha="0"]).container--self,
+.message-container .msg-content-container.mix-message__container--pic[data-liuli-alpha]:not([data-liuli-alpha="0"]).container--others,
+.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha]:not([data-liuli-alpha="0"]).container--self,
+.message-container .msg-content-container.mix-message__container--image[data-liuli-alpha]:not([data-liuli-alpha="0"]).container--others {
   background: transparent !important;
   padding: 0 !important;
   border-radius: 0 !important;

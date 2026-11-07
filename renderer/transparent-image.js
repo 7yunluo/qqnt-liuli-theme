@@ -1,19 +1,21 @@
 // 琉璃主题插件 · 透明图片不画气泡底板
-// 采样图片的 alpha：整张图有足够多透明像素时，给它的气泡打 data-liuli-alpha="1"，
-// 由 bubbles.css 把气泡背景和内边距去掉，只留图片本身（表情包、贴纸用）。
+// 图片一进 DOM 就先按「无底板」渲染（data-liuli-alpha="pending"），采样确认不透明后再把底板补回来，
+// 这样透明图（表情包、贴纸）不会先闪一下气泡。alpha 用画布采样，取不到像素时读 PNG/WebP 文件头。
 
 const MARK = "data-liuli-alpha";
 const CACHE = new Map();      // src -> true / false
 const PENDING = new Map();    // src -> Promise
-const PIC_BUBBLE = "mix-message__container--pic mix-message__container--image";
+const PIC_CLASSES = ["mix-message__container--pic", "mix-message__container--image"];
 let logged = 0;
+let observer = null;
+let queued = false;
 
 function log(line) {
-    if (logged++ > 6) return;
+    if (logged++ > 4) return;
     try { console.warn("[liuli-alpha] " + line); } catch (e) { }
 }
 
-/* 画到 64×64 画布上数透明像素；图片跨源取不到像素时抛错，交给头部嗅探 */
+/* 画到 64×64 画布上数透明像素；跨源取不到像素时抛错，交给头部嗅探 */
 function sampleAlpha(src) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -31,7 +33,7 @@ function sampleAlpha(src) {
                 let clear = 0;
                 for (let i = 3; i < px.length; i += 4) if (px[i] < 250) clear++;
                 const ratio = clear / (w * h);
-                log("canvas " + (ratio > 0.15 ? "透明" : "不透明") + " ratio=" + ratio.toFixed(2) + " " + src.slice(0, 24));
+                log("canvas ratio=" + ratio.toFixed(2));
                 resolve(ratio > 0.15);
             } catch (e) {
                 reject(e);
@@ -42,17 +44,15 @@ function sampleAlpha(src) {
     });
 }
 
-/* 取不到像素时按文件头判断有没有 alpha 通道（PNG / WebP） */
+/* 取不到像素时按文件头判断有没有 alpha 通道 */
 async function sniffAlpha(src) {
     const res = await fetch(src);
     if (!res.ok) throw new Error("fetch " + res.status);
     const buf = new Uint8Array(await res.arrayBuffer());
-    const head = [];
-    for (let i = 0; i < Math.min(buf.length, 40); i++) head.push(String.fromCharCode(buf[i]));
-    const sig = head.join("");
+    let sig = "";
+    for (let i = 0; i < Math.min(buf.length, 40); i++) sig += String.fromCharCode(buf[i]);
     if (sig.indexOf("\x89PNG") === 0) {
-        const colorType = buf[25];
-        const hasAlpha = colorType === 4 || colorType === 6 || sig.indexOf("tRNS") >= 0;
+        const hasAlpha = buf[25] === 4 || buf[25] === 6 || sig.indexOf("tRNS") >= 0;
         log("png header alpha=" + hasAlpha);
         return hasAlpha;
     }
@@ -61,7 +61,6 @@ async function sniffAlpha(src) {
         log("webp header alpha=" + hasAlpha);
         return hasAlpha;
     }
-    log("其它格式按不透明处理");
     return false;
 }
 
@@ -70,7 +69,7 @@ function isTransparent(src) {
     if (PENDING.has(src)) return PENDING.get(src);
     const task = sampleAlpha(src)
         .catch(() => sniffAlpha(src))
-        .catch(e => { log("判定失败 " + (e && e.message)); return false; })
+        .catch(() => false)
         .then(v => {
             CACHE.set(src, v);
             PENDING.delete(src);
@@ -80,27 +79,80 @@ function isTransparent(src) {
     return task;
 }
 
-function markBubble(img) {
-    const bubble = img.closest(".msg-content-container");
-    if (bubble) bubble.setAttribute(MARK, "1");
+function isPicBubble(bubble) {
+    const cls = (bubble.className || "").split(" ");
+    for (const c of PIC_CLASSES) if (cls.indexOf(c) >= 0) return true;
+    return false;
 }
 
-export function installTransparentImages() {
+/* 只处理纯图片消息：卡片、图文混排、文字气泡里的行内表情一律不动 */
+function bubbleOf(img) {
+    const bubble = img.closest(".msg-content-container");
+    if (!bubble || !isPicBubble(bubble)) return null;
+    if (bubble.querySelectorAll("img").length !== 1) return null;
+    return bubble;
+}
+
+function decide(img) {
+    const bubble = bubbleOf(img);
+    if (!bubble) return;
+    const src = img.currentSrc || img.src;
+    if (!src) return;
+    if (CACHE.has(src)) {
+        bubble.setAttribute(MARK, CACHE.get(src) ? "1" : "0");
+        return;
+    }
+    bubble.setAttribute(MARK, "pending");
+    isTransparent(src).then(v => {
+        if (bubbleOf(img) !== bubble) return;
+        bubble.setAttribute(MARK, v ? "1" : "0");
+    });
+}
+
+function scan() {
+    queued = false;
     try {
         const imgs = document.querySelectorAll(".msg-content-container img");
         for (const img of imgs) {
-            const bubble = img.closest(".msg-content-container");
+            const bubble = bubbleOf(img);
             if (!bubble) continue;
-            // 只处理纯图片消息：卡片、图文混排、文字气泡里的行内表情都不动
-            if (!bubble.className.split(" ").some(c => PIC_BUBBLE.indexOf(c) >= 0)) continue;
-            if (bubble.querySelectorAll("img").length !== 1) continue;
-            const src = img.currentSrc || img.src;
-            if (!src) continue;
-            if (CACHE.has(src)) {
-                if (CACHE.get(src)) markBubble(img);
-                continue;
+            if (!bubble.hasAttribute(MARK)) bubble.setAttribute(MARK, "pending");
+            if (img.__liuliAlphaDone) continue;
+            if (img.complete && img.naturalWidth) {
+                img.__liuliAlphaDone = true;
+                decide(img);
+            } else if (!img.__liuliAlphaWatched) {
+                img.__liuliAlphaWatched = true;
+                img.addEventListener("load", function () {
+                    img.__liuliAlphaDone = true;
+                    decide(img);
+                }, { once: true });
             }
-            isTransparent(src).then(v => { if (v) markBubble(img); });
         }
     } catch (e) { }
+}
+
+function queueScan() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(scan);
+}
+
+export function installTransparentImages() {
+    if (!observer) {
+        // 只关心「新插入的图片 / 消息容器」，别被聊天列表的滚动变更牵着走
+        observer = new MutationObserver(function (muts) {
+            for (const m of muts) {
+                for (const n of m.addedNodes) {
+                    if (n.nodeType !== 1) continue;
+                    if (n.tagName === "IMG" || (n.querySelector && n.querySelector("img, .msg-content-container")) || (n.classList && n.classList.contains("msg-content-container"))) {
+                        queueScan();
+                        return;
+                    }
+                }
+            }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    queueScan();
 }
