@@ -389,12 +389,19 @@
  * ════════════════════════════════════════════════════════════ */
 .message-container--others {
   justify-items: start !important;
-  text-align: left !important;
 }
 
 .message-container--self {
   justify-items: end !important;
-  text-align: right !important;
+}
+
+/* 气泡内文字统一左对齐：左右摆位只由 grid 决定，不靠 text-align 继承。
+ * 时间另有 .msg-content-container [class*="msg-time"] 的靠右规则。 */
+.msg-content-container,
+.msg-content-container .text-element,
+.msg-content-container .message-content,
+.msg-content-container [data-liuli-quote-root="1"] {
+  text-align: left !important;
 }
 
 .message-container--others .msg-content-container {
